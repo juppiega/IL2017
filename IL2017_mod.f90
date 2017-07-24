@@ -39,7 +39,7 @@ subroutine IL2017(day_of_year, altitude, latitude, longitude, solar_time, F30, F
     N2_lb = evalMajorSpecies(S, coeff(N2Ind))
     He_lb = evalMajorSpecies(S, coeff(HeInd))
     Ar_lb = evalMajorSpecies(S, coeff(ArInd))
-    O2_lb = exp(coeff(OInd(1)))
+    O2_lb = exp(coeff(O2Ind(1)))
 
     call computeRhoAndTemp(T0, dT, Tex, S%Z, O_lb, N2_lb, He_lb, Ar_lb, O2_lb,&
                            rho, Temperature, components(1:5))
