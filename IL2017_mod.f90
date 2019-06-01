@@ -8,19 +8,19 @@ module IL2017_mod
         real(kind = 8) ::            P10, P11, P20, P21, P22, &
                                      P30, P31, P32, P33, P40, P41, P42, P43, P44, P50, P51, &
                                      P52, P53, P60, P61, P62, P63, P71,  &
-                                     mP10,mP20,mP30,mP40,mP50,mP60,mP70,mP11,mP31,mP51, &
-                                     mP21, mP41, mP32, mP52, yv, dv, lv, Z, F, FA
+                                     mP10,mP20,mP30,mP40,mP50,mP60, mP11,mP21,mP31, &
+                                     mP41, mP51, mP61, mP22, mP32, mP42, mP52, mP62, yv, dv, dv_mag, lv, Z, F, FA
 
         real(kind = 8) :: aeInt(4)
     end type
 
 contains
 
-subroutine IL2017(day_of_year, altitude, latitude, longitude, solar_time, F30, F30_average,&
+subroutine IL2017(day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average,&
                   ae_integrals, rho, Temperature, components)
     implicit none
     ! INPUTS
-    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, solar_time, F30, F30_average
+    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average
     real(kind = 8), intent(in) :: ae_integrals(:)
     ! OUTPUTS
     real(kind = 8), intent(out) :: rho, Temperature, components(8)
@@ -28,17 +28,17 @@ subroutine IL2017(day_of_year, altitude, latitude, longitude, solar_time, F30, F
     type(modelStruct) :: S
     real(kind = 8) :: Tex, T0, dT, O_lb, N2_lb, He_lb, Ar_lb, O2_lb ! Boundary conditions
 
-    S = compute_variables_for_fit(day_of_year, altitude, latitude, longitude, solar_time, &
+    S = compute_variables_for_fit(day_of_year, altitude, latitude, longitude, solar_time, second_of_day,&
                                   F30, F30_average, ae_integrals)
 
-    Tex = evalTex(S, coeff(TexInd))
+    Tex = evalTex(S, coeff(TexInd), ae_integrals(1))
     T0 = evalT0(S, T0Coeffs)
     dT = evalDT(S, dTCoeffs)
 
-    O_lb = evalMajorSpecies(S, coeff(OInd))
-    N2_lb = evalMajorSpecies(S, coeff(N2Ind))
-    He_lb = evalMajorSpecies(S, coeff(HeInd))
-    Ar_lb = evalMajorSpecies(S, coeff(ArInd))
+    O_lb = evalMajorSpecies(S, coeff(OInd), ae_integrals(2))
+    N2_lb = evalMajorSpecies(S, coeff(N2Ind), ae_integrals(3))
+    He_lb = evalMajorSpecies(S, coeff(HeInd), ae_integrals(4))
+    Ar_lb = 0.0
     O2_lb = exp(coeff(O2Ind(1)))
 
     call computeRhoAndTemp(T0, dT, Tex, S%Z, O_lb, N2_lb, He_lb, Ar_lb, O2_lb,&
@@ -50,23 +50,23 @@ subroutine IL2017(day_of_year, altitude, latitude, longitude, solar_time, F30, F
 
 end subroutine
 
-function evalMajorSpecies(S, speciesCoeff)
+function evalMajorSpecies(S, speciesCoeff, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
-    real(kind = 8), intent(in) :: speciesCoeff(:)
+    real(kind = 8), intent(in) :: speciesCoeff(:), aeIntegral
     real(kind = 8) :: evalMajorSpecies
 
-    evalMajorSpecies = exp(speciesCoeff(1) + G_majorTex(speciesCoeff, S));
+    evalMajorSpecies = exp(speciesCoeff(1) + G_majorTex(speciesCoeff, S, aeIntegral));
 
 end function
 
-function evalTex(S, TexCoeff)
+function evalTex(S, TexCoeff, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
-    real(kind = 8), intent(in) :: TexCoeff(:)
+    real(kind = 8), intent(in) :: TexCoeff(:), aeIntegral
     real(kind = 8) :: evalTex
 
-    evalTex = TexCoeff(1) * (1 + G_majorTex(TexCoeff, S))
+    evalTex = TexCoeff(1) * (1 + G_majorTex(TexCoeff, S, aeIntegral))
 
 end function
 
@@ -90,20 +90,22 @@ function evaldT(S, dTCoeff)
 
 end function
 
-function G_majorTex(a, S)
+function G_majorTex(a, S, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
-    real(kind = 8), intent(in) :: a(:)
+    real(kind = 8), intent(in) :: a(:), aeIntegral
     integer :: k
     real(kind = 8) :: G_majorTex
 
     k = 1; ! Counter, which helps at counting the terms
-    G_majorTex = G_quiet(a(k+1:k+111), S) + G_storm(a(k+112:size(a)), S);
+    G_majorTex = G_quiet(a(k+1:k+111), S) + G_storm(a(k+112:size(a)), S, aeIntegral);
 
 end function
 
+
 function G_quiet(a, S)
     implicit none
+
     type(modelStruct), intent(in) :: S
     real(kind = 8), intent(in) :: a(:)
     real(kind = 8) :: G_quiet, latitudeTerm, solarTerm, annual, diurnal, semidiurnal, &
@@ -112,15 +114,17 @@ function G_quiet(a, S)
     integer :: k, dPh, numInts, dPy
     integer(kind = 4) :: mexPrintf, i
     real(kind = 8) :: pi
-    pi = 4.0 * atan(1.0D0)
 
-    k = 0;
+    pi = 4.0 * atan(1.0)
+
+    k = 0; ! Counter, which helps adding termS%
+
     latitudeTerm = a(k+1)*S%P10 + a(k+2)*S%P20 + a(k+3)*S%P30 + a(k+4)*S%P40 + a(k+5)*S%P50 + a(k+6)*S%P60 + &
                      a(k+7)*S%FA*S%P10 + a(k+8)*S%FA*S%P20 + a(k+9)*S%FA*S%P30 + a(k+10)*S%FA*S%P40 + &
                      a(k+11)*S%F*S%P10 + a(k+12)*S%F*S%P20 + a(k+13)*S%F*S%P30 + a(k+14)*S%F*S%P40;
     k = k + 14;
 
-    solarTerm = a(k+1)*S%F + a(k+2)*S%F**2 + a(k+3)*S%FA + a(k+4)*S%FA**2 + a(k+5)*S%F*S%FA;
+    solarTerm = a(k+1)*(S%F-S%FA) + a(k+2)*(S%F-S%FA)**2 + a(k+3)*(S%FA-80) + a(k+4)*(S%FA-80)**2 + a(k+5)*(S%F-S%FA)*(S%FA-80);
     k = k + 5;
 
     annual = (a(k+1) + a(k+2)*S%P20 + a(k+3)*S%P40)*cos(S%yv-pi*a(k+4))*(1+a(k+5)*S%FA+a(k+6)*S%FA**2) + &
@@ -135,15 +139,15 @@ function G_quiet(a, S)
     k = k + 14;
 
     dPh = k + 11;
-    diurnal = ((a(k+1)*S%P11 + a(k+2)*S%P31 + a(k+3)*S%P51 + a(k+4)*S%P71 + a(k+5)*S%FA + a(k+6)*S%FA**2 + &
+    diurnal = ((a(k+1)*S%P11 + a(k+2)*S%P31 + a(k+3)*S%P51 + a(k+4)*S%P71 + a(k+5)*(S%FA-80) + a(k+6)*(S%FA-80)**2 + &
                  a(k+7)*(S%F - S%FA)) + (a(k+8)*S%P11 + a(k+9)*S%P21 + a(k+10)*S%P31)*(cos(S%yv-pi*a(dPh))))*cos(S%dv) + &
-                ((a(k+12)*S%P11 + a(k+13)*S%P31 + a(k+14)*S%P51 + a(k+15)*S%P71 + a(k+16)*S%FA + a(k+17)*S%FA**2 + &
+                ((a(k+12)*S%P11 + a(k+13)*S%P31 + a(k+14)*S%P51 + a(k+15)*S%P71 + a(k+16)*(S%FA-80) + a(k+17)*(S%FA-80)**2 + &
                 a(k+18)*(S%F - S%FA)) + (a(k+19)*S%P11 + a(k+20)*S%P21 + a(k+21)*S%P31)*(cos(S%yv-pi*a(dPh))))*sin(S%dv);
     k = k + 21;
 
-    semidiurnal = (a(k+1)*S%P22 + a(k+2)*S%P32 + a(k+3)*S%P52 + a(k+4)*S%FA + a(k+5)*S%FA**2 + a(k+6)*(S%F-S%FA) + &
+    semidiurnal = (a(k+1)*S%P22 + a(k+2)*S%P32 + a(k+3)*S%P52 + a(k+4)*(S%FA-80) + a(k+5)*(S%FA-80)**2 + a(k+6)*(S%F-S%FA) + &
                 (a(k+7)*S%P32 + a(k+8)*S%P52)*cos(S%yv-pi*a(dPh)))*cos(2*S%dv) + &
-                (a(k+9)*S%P22 + a(k+10)*S%P32 + a(k+11)*S%P52 + a(k+12)*S%FA + a(k+13)*S%FA**2 + a(k+14)*(S%F-S%FA) + &
+                (a(k+9)*S%P22 + a(k+10)*S%P32 + a(k+11)*S%P52 + a(k+12)*(S%FA-80) + a(k+13)*(S%FA-80)**2 + a(k+14)*(S%F-S%FA) + &
                 (a(k+15)*S%P32 + a(k+16)*S%P52)*cos(S%yv-pi*a(dPh)))*sin(2*S%dv);
     k = k + 16;
 
@@ -162,15 +166,35 @@ function G_quiet(a, S)
     k = k + 13;
 
     G_quiet = latitudeTerm + solarTerm + annual + diurnal + semidiurnal + terdiurnal + quaterdiurnal + longitudinal
+
+    !print *, latitudeTerm, solarTerm , annual , diurnal , semidiurnal , terdiurnal , quaterdiurnal , longitudinal
+    !stop 'G_quiet'
+
 end function
 
-function G_storm(a, S)
+function G_storm(a, S, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
-    real(kind = 8), intent(in) :: a(:)
+    real(kind = 8), intent(in) :: a(:), aeIntegral
     real(kind = 8) :: G_storm
+    real(kind = 8) :: an, order_0, order_1, order_2
+    integer :: k
+    k = 1
 
-    G_storm = 0.0
+    an = a(k+8);
+    order_0 = (a(k+1)+a(k+2)*S%mP20+a(k+3)*S%mP40+a(k+4)*S%mP60 + (a(k+5)*S%mP10+a(k+6)*S%mP30+a(k+7)*S%mP50)*&
+              cos(S%yv-an))*(1+a(k+9)*S%F)*aeIntegral;
+    k = k + 9;!10
+
+    order_1 = (a(k+1)*S%mP11+a(k+2)*S%mP31+a(k+3)*S%mP51 + (a(k+4)*S%mP21+a(k+5)*S%mP41+a(k+6)*S%mP61)*&
+                cos(S%yv-an))*(1+a(k+7)*S%F)*aeIntegral*cos(S%dv_mag-a(k+8));
+    k = k + 8;!18
+
+    order_2 = (a(k+1)*S%mP22+a(k+2)*S%mP42+a(k+3)*S%mP62 + (a(k+4)*S%mP32+a(k+5)*S%mP52)*&
+              cos(S%yv-an))*(1+a(k+6)*S%F)*aeIntegral*cos(2*(S%dv_mag-a(k+7)));
+    k = k + 7;!25
+
+    G_storm = order_0 + order_1 + order_2;
 
 end function
 
@@ -218,19 +242,107 @@ subroutine computeRhoAndTemp(T0, dT0, Tex, Z, OlbDens, N2lbDens, HelbDens, ArlbD
 
 end subroutine
 
-function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, solar_time, &
+subroutine convertToMagneticCoordinates(latitude_deg, longitude_deg, altitude, magLat, magLon)
+    implicit none
+    real(kind = 8), intent(in) :: latitude_deg, longitude_deg, altitude
+    real(kind = 8), intent(out) :: magLat, magLon
+    real(kind = 8) :: pi, latitude, longitude, Nphi, x, y, z, mag_x, mag_y, mag_z, r
+    real(kind = 8), parameter :: a = 6378137, f = 1/298.257223563, b = a*(1 - f), e2 = 1 - (b/a)**2
+
+    pi = 4.0 * atan(1.0)
+
+    latitude = latitude_deg*pi/180; longitude = longitude_deg*pi/180;
+
+    Nphi = a / sqrt(1 - e2*sin(latitude)**2);
+    x = (Nphi + altitude) * cos(latitude) * cos(longitude);
+    y = (Nphi + altitude) * cos(latitude) * sin(longitude);
+    z = (Nphi * (1 - e2) + altitude) * sin(latitude);
+
+    mag_x = 0.33907*x - 0.91964*y - 0.19826*z
+    mag_y = 0.93826*x + 0.34594*y
+    mag_z = 0.06859*x + 0.18602*y + 0.98015*z
+
+    r = sqrt(mag_x*mag_x + mag_y*mag_y + mag_z*mag_z)
+    magLat = pi/2 - acos(mag_z / r)
+    magLat = magLat * 180 / pi
+    magLon = 180 * atan2(mag_y, mag_x) / pi
+
+end subroutine
+
+function computeDeclination (doy) result(declination)
+    implicit none
+    real(kind = 8), intent(in) :: doy
+    real(kind = 8) :: declination
+    real(kind = 8) :: n, L, g, lambda, eps, pi
+    ! Calculation from:
+    ! U.S. Naval Observatory; U.K. Hydrographic Office, H.M. Nautical Almanac Office (2008),
+    ! The Astronomical Almanac for the Year 2010. U.S. Govt. Printing Office. p. C5.
+    ! Year 2000 is assumed
+
+    pi = 4.0 * atan(1.0D0)
+
+    n = doy - 1.5;
+    L = mod(280.46 + 0.9856474*n, 360D0);
+    g = mod(357.528 + 0.9856003*n, 360D0);
+    lambda = L + 1.915*sin(g*pi/180) + 0.020*sin(2*g*pi/180);
+
+    eps = 23.439 * pi / 180;
+    declination = asin(sin(eps) * sin(lambda*pi/180)) * 180 / pi;
+
+end function
+
+function computeEquationOfTime (doy) result(eqOfTime)
+    implicit none
+    real(kind = 8), intent(in) :: doy
+    real(kind = 8) :: eqOfTime
+    real(kind = 8) :: n, g, pi
+
+    pi = 4.0 * atan(1.0D0)
+
+    n = doy - 1.5;
+    g = mod(357.528 + 0.9856003*n, 360D0) * pi / 180;
+
+    eqOfTime = (-7.659*sin(g) + 9.863*sin(2*g + 3.5932))/60; ! hours
+
+end
+
+function computeMagneticLocalTime(magLon, doy, second_of_day) result (magneticLocalTime)
+    implicit none
+    real(kind = 8), intent(in) :: magLon, doy, second_of_day
+    real(kind = 8) :: subsolarLat, subsolarLon, altitude, magneticSubSolarLat, magneticSubSolarLon, magneticLocalTime
+
+    subSolarLat = computeDeclination(doy);
+    subSolarLon = 15 * (12 - computeEquationOfTime(doy) - second_of_day/3600);
+
+    altitude = 270D3; ! Does not matter
+    call convertToMagneticCoordinates(subSolarLat, subSolarLon, altitude, magneticSubSolarLat, magneticSubSolarLon);
+
+    magneticLocalTime = 12 + (magLon - magneticSubSolarLon) / 15;
+    if (magneticLocalTime >= 24) then
+        magneticLocalTime = magneticLocalTime - 24
+    elseif (magneticLocalTime < 0) then
+        magneticLocalTime = magneticLocalTime + 24
+    end if
+
+
+end function
+
+function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, solar_time, second_of_day,&
                                   F30, F30_average, ae_integrals) result(S)
     implicit none
      ! INPUTS
-    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, solar_time, F30, F30_average
+    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average
     real(kind = 8), intent(in) :: ae_integrals(:)
     ! LOCAL VARIABLES
     type(modelStruct) :: S
-    real(kind = 8) :: x, P(0:7), pi
+    real(kind = 8) :: x, x_mag, P(0:7), pi, magLat, magLon, MLT
     real(kind = 8), parameter :: R = 6356770, z0 = 130D3
     pi = 4.0 * atan(1.0D0)
 
     x = sin(latitude * pi / 180.0)
+
+    call convertToMagneticCoordinates(latitude, longitude, altitude, magLat, magLon)
+    x_mag = sin(magLat * pi / 180.0)
 
     P = legendre(0, x)
     S%P10 = P(1)
@@ -252,9 +364,7 @@ function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, s
     P = legendre(2, x)
     S%P22 = P(2)
     S%P32 = P(3)
-    S%P42 = P(4)
     S%P52 = P(5)
-    S%P62 = P(6)
 
     P = legendre(3, x)
     S%P33 = P(3)
@@ -265,8 +375,35 @@ function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, s
     P = legendre(4, x)
     S%P44 = P(4)
 
+    ! Magnetic
+
+    P = legendre(0, x_mag)
+    S%mP10 = P(1)
+    S%mP20 = P(2)
+    S%mP30 = P(3)
+    S%mP40 = P(4)
+    S%mP50 = P(5)
+    S%mP60 = P(6)
+
+    P = legendre(1, x_mag)
+    S%mP11 = P(1)
+    S%mP21 = P(2)
+    S%mP31 = P(3)
+    S%mP41 = P(4)
+    S%mP51 = P(5)
+    S%mP61 = P(6)
+
+    P = legendre(2, x_mag)
+    S%mP22 = P(2)
+    S%mP32 = P(3)
+    S%mP42 = P(4)
+    S%mP52 = P(5)
+    S%mP62 = P(6)
+
     S%yv = 2 * pi * (day_of_year - 1) / 365
     S%dv = 2 * pi * (solar_time) / 24
+    MLT = computeMagneticLocalTime(magLon, day_of_year, second_of_day)
+    S%dv_mag = 2 * pi * MLT / 24
     S%lv = longitude * pi / 180
 
     S%F = F30
@@ -275,6 +412,19 @@ function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, s
     S%aeInt = ae_integrals
 
     S%Z = (R + z0) * (altitude - z0 * 1D-3) / (R + altitude*1000)
+
+end function
+
+function fac(k)
+    implicit none
+    integer :: k
+    integer(kind = 8) :: fac
+    integer :: j
+
+    fac = 1
+    do j = 2, k
+        fac = fac * j
+    end do
 
 end function
 
@@ -287,10 +437,14 @@ function legendre(m,X)
     real(kind = 8) :: legendre(0:7)
     ! LOCAL VARIABLES
     integer(kind = 4), parameter :: numPoints = 1
+    integer :: n
     real(kind = 8) :: inputX(1), legendre_result(1,0:7)
 
     inputX(1) = X
     call pm_polynomial_value(numPoints, 7, m, inputX, legendre_result)
+    do n = m, 7
+        legendre_result(1,n) = (-1)**m * sqrt((n+0.5D0) * fac(n-m) / fac(n+m)) * legendre_result(1,n)
+    end do
     legendre = legendre_result(1,:)
     !print *, legendre_result
 
@@ -438,6 +592,7 @@ subroutine pm_polynomial_value ( mm, n, m, x, cx )
                  / real (     j - m,     kind = 8 )
   end do
 
+
   return
 end subroutine
 
@@ -451,20 +606,21 @@ program test_il
     use IL2017_mod
 
     implicit none
-    real(kind = 8) :: day_of_year, altitude, latitude, longitude, solar_time, F30, F30_average
+    real(kind = 8) :: day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average
     real(kind = 8) :: ae_integrals(4)
     real(kind = 8) :: rho, Temperature, components(8)
 
-    day_of_year = 100
+    day_of_year = 105.66
     altitude = 400
-    latitude = 0
-    longitude = 25
+    latitude = 10
+    longitude = -60
     solar_time = 12
+    second_of_day = 16*3600
     F30 = 100
     F30_average = 100
-    ae_integrals(:) = [0,0,0,0]
+    ae_integrals(:) = [600D0,600D0,600D0,600D0]
 
-    call IL2017(day_of_year, altitude, latitude, longitude, solar_time, F30, F30_average,&
+    call IL2017(day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average,&
                   ae_integrals, rho, Temperature, components)
 
     print *, rho
