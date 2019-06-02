@@ -4,52 +4,89 @@ module IL2017_mod
     private
     public IL2017
 
+    ! TYPE MODELSTRUCT:
+    ! An internal data type used to store the independent variables (spherical harmonics, geopotential height and solar fluxes).
     type modelStruct
+        ! PNM and mPNM are the associated Legendre functions in geographic and magnetic coordinates, respectively.
+        ! All parameters are scalars
         real(kind = 8) ::            P10, P11, P20, P21, P22, &
                                      P30, P31, P32, P33, P40, P41, P42, P43, P44, P50, P51, &
                                      P52, P53, P60, P61, P62, P63, P71,  &
                                      mP10,mP20,mP30,mP40,mP50,mP60, mP11,mP21,mP31, &
-                                     mP41, mP51, mP61, mP22, mP32, mP42, mP52, mP62, yv, dv, dv_mag, lv, Z, F, FA
-
-        real(kind = 8) :: aeInt(4)
+                                     mP41, mP51, mP61, mP22, mP32, mP42, mP52, mP62, &
+                                     yv, dv, dv_mag, lv, Z, F, FA
     end type
 
 contains
 
-subroutine IL2017(day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average,&
-                  ae_integrals, rho, Temperature, components)
+! subroutine IL2017(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average,&
+!                  ae_integrals, rho, temperature, components)
+! PURPOSE: The main subroutine of the IL2017 model.
+! INPUTS:
+!       real*8    day_of_year     : Day of the year (1.0 - 366.0). Can include a fraction.
+!       real*8    altitude        : Altitude (WGS84, km)
+!       real*8    latitude        : Geographic latitude (WGS84, degrees)
+!       real*8    longitude       : Geographic longitude (WGS84, degrees)
+!       real*8    UTC_hour        : Number of hours since 00 UTC. Please include a fraction for accuracy.
+!       real*8    F30             : Daily 30 cm radio flux on the previous day (sfu).
+!       real*8    F30_average     : Arithmetic mean of the 30 cm flux over the preceding 81 days (sfu).
+!       real*8    ae_integrals(:) : Exponentially weighted averages of the AE index:
+!                                   ae_integrals(1): e-folding time (tau) of 6.9622 hours (for Exospheric temperature)
+!                                   ae_integrals(2): tau = 17.9177 hours (Atomic Oxygen)
+!                                   ae_integrals(3): tau = 6.1054 hours  (Molecular Nitrogen)
+!                                   ae_integrals(4): tau = 5.7896 hours  (Helium)
+! OUTPUTS:
+!       real*8    rho             : Total (neutral) mass density (kg/m^3)
+!       real*8    temperature     : Neutral temperature (K)
+!       real*8    components(8)   : Number densities and further temperature parameters
+!                                   components(1): O  number density (1/cm^3)
+!                                   components(2): N2 number density (1/cm^3)
+!                                   components(3): He number density (1/cm^3)
+!                                   components(4): Ar number density (1/cm^3) (NOT IMPLEMENTED)
+!                                   components(5): O2 number density (1/cm^3)
+!                                   components(6): Exospheric temperature (K)
+!                                   components(7): 130-km temperature (K)
+!                                   components(8): 130-km temperature gradient (K/km)
+subroutine IL2017(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average,&
+                  ae_integrals, rho, temperature, components)
     implicit none
     ! INPUTS
-    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average
+    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average
     real(kind = 8), intent(in) :: ae_integrals(:)
     ! OUTPUTS
-    real(kind = 8), intent(out) :: rho, Temperature, components(8)
+    real(kind = 8), intent(out) :: rho, temperature, components(8)
     ! LOCAL VARIABLES
-    type(modelStruct) :: S
+    type(modelStruct) :: S ! Type for the processed input parameters
     real(kind = 8) :: Tex, T0, dT, O_lb, N2_lb, He_lb, Ar_lb, O2_lb ! Boundary conditions
 
-    S = compute_variables_for_fit(day_of_year, altitude, latitude, longitude, solar_time, second_of_day,&
-                                  F30, F30_average, ae_integrals)
+    ! Input parameter post processin (compute spherical harmonics)
+    S = compute_variables_for_fit(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average)
 
+    ! Compute the boundary temperatures.
     Tex = evalTex(S, coeff(TexInd), ae_integrals(1))
     T0 = evalT0(S, T0Coeffs)
     dT = evalDT(S, dTCoeffs)
 
+    ! Compute the densities at the lower boundary.
     O_lb = evalMajorSpecies(S, coeff(OInd), ae_integrals(2))
     N2_lb = evalMajorSpecies(S, coeff(N2Ind), ae_integrals(3))
     He_lb = evalMajorSpecies(S, coeff(HeInd), ae_integrals(4))
-    Ar_lb = 0.0
+    Ar_lb = 0.0 ! Not implemented
     O2_lb = exp(coeff(O2Ind(1)))
 
+    ! Hydrostatic integration of the neutral densities. Computes the final outputs.
     call computeRhoAndTemp(T0, dT, Tex, S%Z, O_lb, N2_lb, He_lb, Ar_lb, O2_lb,&
-                           rho, Temperature, components(1:5))
+                           rho, temperature, components(1:5))
 
+    ! Output the boundary temperatures.
     components(6) = Tex
     components(7) = T0
     components(8) = dT
 
 end subroutine
 
+! function evalMajorSpecies(S, speciesCoeff, aeIntegral)
+! PURPOSE: Use the model equations (G) to compute the number density of a neutral species at the lower boundary.
 function evalMajorSpecies(S, speciesCoeff, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
@@ -60,6 +97,8 @@ function evalMajorSpecies(S, speciesCoeff, aeIntegral)
 
 end function
 
+! function evalTex(S, TexCoeff, aeIntegral)
+! PURPOSE: Use the model equations to compute the exospheric temperature.
 function evalTex(S, TexCoeff, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
@@ -70,6 +109,8 @@ function evalTex(S, TexCoeff, aeIntegral)
 
 end function
 
+! function evalT0(S, T0Coeff)
+! PURPOSE: Compute the 130-km temperature.
 function evalT0(S, T0Coeff)
     implicit none
     type(modelStruct), intent(in) :: S
@@ -80,6 +121,8 @@ function evalT0(S, T0Coeff)
 
 end function
 
+! function evaldT(S, dTCoeff)
+! PURPOSE: Compute the 130-km temperature gradient.
 function evaldT(S, dTCoeff)
     implicit none
     type(modelStruct), intent(in) :: S
@@ -90,6 +133,8 @@ function evaldT(S, dTCoeff)
 
 end function
 
+! function G_majorTex(a, S, aeIntegral)
+! PURPOSE: Upper-level function of the model equation. Sum the quiet and the storm effects.
 function G_majorTex(a, S, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
@@ -97,27 +142,26 @@ function G_majorTex(a, S, aeIntegral)
     integer :: k
     real(kind = 8) :: G_majorTex
 
-    k = 1; ! Counter, which helps at counting the terms
+    k = 1; ! Counter, which helps at counting terms.
     G_majorTex = G_quiet(a(k+1:k+111), S) + G_storm(a(k+112:size(a)), S, aeIntegral);
 
 end function
 
-
+! function G_quiet(a, S)
+! PURPOSE: The quiet-time model equation.
 function G_quiet(a, S)
     implicit none
 
     type(modelStruct), intent(in) :: S
     real(kind = 8), intent(in) :: a(:)
     real(kind = 8) :: G_quiet, latitudeTerm, solarTerm, annual, diurnal, semidiurnal, &
-                                   terdiurnal, quaterdiurnal, geomagnetic, geom_symmetric, geom_yearly,&
-                                   geom_lst, AE_base, longitudinal
-    integer :: k, dPh, numInts, dPy
-    integer(kind = 4) :: mexPrintf, i
+                                   terdiurnal, quaterdiurnal, longitudinal
+    integer :: k, dPh, dPy
     real(kind = 8) :: pi
 
     pi = 4.0 * atan(1.0)
 
-    k = 0; ! Counter, which helps adding termS%
+    k = 0; ! Counter.
 
     latitudeTerm = a(k+1)*S%P10 + a(k+2)*S%P20 + a(k+3)*S%P30 + a(k+4)*S%P40 + a(k+5)*S%P50 + a(k+6)*S%P60 + &
                      a(k+7)*S%FA*S%P10 + a(k+8)*S%FA*S%P20 + a(k+9)*S%FA*S%P30 + a(k+10)*S%FA*S%P40 + &
@@ -167,11 +211,10 @@ function G_quiet(a, S)
 
     G_quiet = latitudeTerm + solarTerm + annual + diurnal + semidiurnal + terdiurnal + quaterdiurnal + longitudinal
 
-    !print *, latitudeTerm, solarTerm , annual , diurnal , semidiurnal , terdiurnal , quaterdiurnal , longitudinal
-    !stop 'G_quiet'
-
 end function
 
+! function G_storm(a, S)
+! PURPOSE: The storm-time model equation.
 function G_storm(a, S, aeIntegral)
     implicit none
     type(modelStruct), intent(in) :: S
@@ -198,6 +241,9 @@ function G_storm(a, S, aeIntegral)
 
 end function
 
+! subroutine computeRhoAndTemp(T0, dT0, Tex, Z, OlbDens, N2lbDens, HelbDens, ArlbDens, O2lbDens,&
+!                      rho, T, components)
+! PURPOSE: Perform hydrostatic integration to compute the neutral densities at the correct altitude.
 subroutine computeRhoAndTemp(T0, dT0, Tex, Z, OlbDens, N2lbDens, HelbDens, ArlbDens, O2lbDens,&
                       rho, T, components)
     implicit none
@@ -242,22 +288,26 @@ subroutine computeRhoAndTemp(T0, dT0, Tex, Z, OlbDens, N2lbDens, HelbDens, ArlbD
 
 end subroutine
 
-subroutine convertToMagneticCoordinates(latitude_deg, longitude_deg, altitude, magLat, magLon)
+! subroutine convertToMagneticCoordinates(latitude_deg, longitude_deg, altitude, magLat, magLon)
+! PURPOSE: Compute the magnetic latitude and longitude for a given geographic position.
+subroutine convertToMagneticCoordinates(latitude_deg, longitude_deg, magLat, magLon)
     implicit none
-    real(kind = 8), intent(in) :: latitude_deg, longitude_deg, altitude
+    real(kind = 8), intent(in) :: latitude_deg, longitude_deg
     real(kind = 8), intent(out) :: magLat, magLon
-    real(kind = 8) :: pi, latitude, longitude, Nphi, x, y, z, mag_x, mag_y, mag_z, r
+    real(kind = 8) :: pi, latitude, longitude, N, x, y, z, mag_x, mag_y, mag_z, r
     real(kind = 8), parameter :: a = 6378137, f = 1/298.257223563, b = a*(1 - f), e2 = 1 - (b/a)**2
 
     pi = 4.0 * atan(1.0)
 
     latitude = latitude_deg*pi/180; longitude = longitude_deg*pi/180;
 
-    Nphi = a / sqrt(1 - e2*sin(latitude)**2);
-    x = (Nphi + altitude) * cos(latitude) * cos(longitude);
-    y = (Nphi + altitude) * cos(latitude) * sin(longitude);
-    z = (Nphi * (1 - e2) + altitude) * sin(latitude);
+    ! Convert to ECEF (see e.g. https://en.wikipedia.org/wiki/Geographic_coordinate_conversion#From_geodetic_to_ECEF_coordinates)
+    N = a / sqrt(1 - e2*sin(latitude)**2);
+    x = N * cos(latitude) * cos(longitude);
+    y = N * cos(latitude) * sin(longitude);
+    z = N * (1 - e2) * sin(latitude);
 
+    ! Rotate coordinates to IGRF (e.g. Russel, C. T. (1971), Geophysical coordinate transformations, Cosmic Elecrodynamics, 2, 184-196)
     mag_x = 0.33907*x - 0.91964*y - 0.19826*z
     mag_y = 0.93826*x + 0.34594*y
     mag_z = 0.06859*x + 0.18602*y + 0.98015*z
@@ -269,15 +319,17 @@ subroutine convertToMagneticCoordinates(latitude_deg, longitude_deg, altitude, m
 
 end subroutine
 
+! function computeDeclination (doy) result(declination)
+! PURPOSE: Compute declination of the Sun.
+! Calculation from:
+! U.S. Naval Observatory; U.K. Hydrographic Office, H.M. Nautical Almanac Office (2008),
+! The Astronomical Almanac for the Year 2010. U.S. Govt. Printing Office. Section C.
+! Year 2000 is assumed
 function computeDeclination (doy) result(declination)
     implicit none
     real(kind = 8), intent(in) :: doy
     real(kind = 8) :: declination
     real(kind = 8) :: n, L, g, lambda, eps, pi
-    ! Calculation from:
-    ! U.S. Naval Observatory; U.K. Hydrographic Office, H.M. Nautical Almanac Office (2008),
-    ! The Astronomical Almanac for the Year 2010. U.S. Govt. Printing Office. p. C5.
-    ! Year 2000 is assumed
 
     pi = 4.0 * atan(1.0D0)
 
@@ -291,6 +343,12 @@ function computeDeclination (doy) result(declination)
 
 end function
 
+! function computeEquationOfTime (doy) result(eqOfTime)
+! PURPOSE: Compute the equation of time.
+! Calculation from:
+! U.S. Naval Observatory; U.K. Hydrographic Office, H.M. Nautical Almanac Office (2008),
+! The Astronomical Almanac for the Year 2010. U.S. Govt. Printing Office. Section C.
+! Year 2000 is assumed
 function computeEquationOfTime (doy) result(eqOfTime)
     implicit none
     real(kind = 8), intent(in) :: doy
@@ -306,44 +364,43 @@ function computeEquationOfTime (doy) result(eqOfTime)
 
 end
 
-function computeMagneticLocalTime(magLon, doy, second_of_day) result (magneticLocalTime)
+! function computeMagneticLocalTime(magLon, doy, UTC_hour) result (magneticLocalTime)
+! PURPOSE: Compute the magnetic local time used in the storm equation.
+function computeMagneticLocalTime(magLon, doy, UTC_hour) result (magneticLocalTime)
     implicit none
-    real(kind = 8), intent(in) :: magLon, doy, second_of_day
-    real(kind = 8) :: subsolarLat, subsolarLon, altitude, magneticSubSolarLat, magneticSubSolarLon, magneticLocalTime
+    real(kind = 8), intent(in) :: magLon, doy, UTC_hour
+    real(kind = 8) :: subsolarLat, subsolarLon, magneticSubSolarLat, magneticSubSolarLon, magneticLocalTime
 
     subSolarLat = computeDeclination(doy);
-    subSolarLon = 15 * (12 - computeEquationOfTime(doy) - second_of_day/3600);
+    subSolarLon = 15 * (12 - computeEquationOfTime(doy) - UTC_hour);
 
-    altitude = 270D3; ! Does not matter
-    call convertToMagneticCoordinates(subSolarLat, subSolarLon, altitude, magneticSubSolarLat, magneticSubSolarLon);
+    call convertToMagneticCoordinates(subSolarLat, subSolarLon, magneticSubSolarLat, magneticSubSolarLon);
 
     magneticLocalTime = 12 + (magLon - magneticSubSolarLon) / 15;
-    if (magneticLocalTime >= 24) then
-        magneticLocalTime = magneticLocalTime - 24
-    elseif (magneticLocalTime < 0) then
-        magneticLocalTime = magneticLocalTime + 24
-    end if
-
 
 end function
 
-function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, solar_time, second_of_day,&
-                                  F30, F30_average, ae_integrals) result(S)
+! function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, UTC_hour,&
+!                                  F30, F30_average) result(S)
+! PURPOSE: Further process the input parameters.
+function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, UTC_hour,&
+                                  F30, F30_average) result(S)
     implicit none
      ! INPUTS
-    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average
-    real(kind = 8), intent(in) :: ae_integrals(:)
-    ! LOCAL VARIABLES
+    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average
+    ! OUTPUT
     type(modelStruct) :: S
-    real(kind = 8) :: x, x_mag, P(0:7), pi, magLat, magLon, MLT
+    ! LOCAL VARIABLES
+    real(kind = 8) :: x, x_mag, P(0:7), pi, magLat, magLon, MLT, LST
     real(kind = 8), parameter :: R = 6356770, z0 = 130D3
+
     pi = 4.0 * atan(1.0D0)
 
     x = sin(latitude * pi / 180.0)
-
-    call convertToMagneticCoordinates(latitude, longitude, altitude, magLat, magLon)
+    call convertToMagneticCoordinates(latitude, longitude, magLat, magLon)
     x_mag = sin(magLat * pi / 180.0)
 
+    ! Compute the associated Legendre functions in geographic coordinates.
     P = legendre(0, x)
     S%P10 = P(1)
     S%P20 = P(2)
@@ -375,8 +432,7 @@ function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, s
     P = legendre(4, x)
     S%P44 = P(4)
 
-    ! Magnetic
-
+    ! Same for the magnetic coordinates.
     P = legendre(0, x_mag)
     S%mP10 = P(1)
     S%mP20 = P(2)
@@ -400,21 +456,25 @@ function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, s
     S%mP52 = P(5)
     S%mP62 = P(6)
 
+    ! Variations in the "zonal" direction (yv: yearly-, dv: diurnal-, lv: longitudinal variation)
     S%yv = 2 * pi * (day_of_year - 1) / 365
-    S%dv = 2 * pi * (solar_time) / 24
-    MLT = computeMagneticLocalTime(magLon, day_of_year, second_of_day)
-    S%dv_mag = 2 * pi * MLT / 24
+    LST = UTC_hour + longitude/15 ! Local solar time
+    S%dv = 2 * pi * LST / 24
     S%lv = longitude * pi / 180
+
+    ! Magnetic diurnal variation.
+    MLT = computeMagneticLocalTime(magLon, day_of_year, UTC_hour)
+    S%dv_mag = 2 * pi * MLT / 24
 
     S%F = F30
     S%FA = F30_average
 
-    S%aeInt = ae_integrals
-
+    ! Geopotential height.
     S%Z = (R + z0) * (altitude - z0 * 1D-3) / (R + altitude*1000)
 
 end function
 
+! Factorial function for the Legendre computation.
 function fac(k)
     implicit none
     integer :: k
@@ -428,25 +488,28 @@ function fac(k)
 
 end function
 
+! function legendre(m,X)
+! PURPOSE: Compute the fully-normalized associated Legendre functions for order m (and degree 0 to 7).
 function legendre(m,X)
     implicit none
     ! INPUTS
     integer, intent(in) :: m
     real(kind = 8), intent(in) :: X
-    ! FUNCTION
+    ! OUTPUT
     real(kind = 8) :: legendre(0:7)
     ! LOCAL VARIABLES
-    integer(kind = 4), parameter :: numPoints = 1
+    integer(kind = 4), parameter :: numPoints = 1, maxDegree = 7
     integer :: n
     real(kind = 8) :: inputX(1), legendre_result(1,0:7)
 
     inputX(1) = X
-    call pm_polynomial_value(numPoints, 7, m, inputX, legendre_result)
+    ! Evaluate the polynomials at X.
+    call pm_polynomial_value(numPoints, maxDegree, int(m,4), inputX, legendre_result)
+    ! Normalize to produce the fully-normalized functions.
     do n = m, 7
         legendre_result(1,n) = (-1)**m * sqrt((n+0.5D0) * fac(n-m) / fac(n+m)) * legendre_result(1,n)
     end do
     legendre = legendre_result(1,:)
-    !print *, legendre_result
 
 end function
 
@@ -597,33 +660,3 @@ subroutine pm_polynomial_value ( mm, n, m, x, cx )
 end subroutine
 
 end module IL2017_mod
-
-
-
-
-
-program test_il
-    use IL2017_mod
-
-    implicit none
-    real(kind = 8) :: day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average
-    real(kind = 8) :: ae_integrals(4)
-    real(kind = 8) :: rho, Temperature, components(8)
-
-    day_of_year = 105.66
-    altitude = 400
-    latitude = 10
-    longitude = -60
-    solar_time = 12
-    second_of_day = 16*3600
-    F30 = 100
-    F30_average = 100
-    ae_integrals(:) = [600D0,600D0,600D0,600D0]
-
-    call IL2017(day_of_year, altitude, latitude, longitude, solar_time, second_of_day, F30, F30_average,&
-                  ae_integrals, rho, Temperature, components)
-
-    print *, rho
-    print *, Temperature
-    print *, components
-end program test_il

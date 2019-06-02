@@ -1,0 +1,8 @@
+Debug/
+.settings/
+.project
+.cproject
+*.m~
+*.mexa64
+*.mod
+*.mat
