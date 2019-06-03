@@ -71,7 +71,7 @@ RUNNING:
   data is obtained through SuperMAG:
        Gjerloev, J. W. (2012), The SuperMAG data processing technique, J. Geophys. Res., 117, A09213, doi:10.1029/2012JA017683
   and the newly computed index is made available at:
-       https://drive.google.com/open?id=1j8xjxvATW19j8vrioNu6vMrn8MVtnkWgEN-WH0uINgo
+       https://drive.google.com/drive/folders/11FOXt76xkHBedQIAaRcJyytjFNBwZcRd
   This Google Drive folder also includes the AE integrals (computed with "compute_AE_integrals.m"), which are required for running the model.
 
   The 30 cm solar radio flux is measured at the Nobeyama Radio Observatory in Japan (a division of the National Astronomical Observatory of Japan). The data is hosted by 
