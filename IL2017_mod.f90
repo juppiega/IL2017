@@ -23,7 +23,7 @@ contains
 !                  ae_integrals, rho, temperature, components)
 ! PURPOSE: The main subroutine of the IL2017 model.
 ! INPUTS:
-!       real*8    day_of_year     : Day of the year (1.0 - 366.0). Can include a fraction.
+!       integer   day_of_year     : Day of the year (1 - 366)
 !       real*8    altitude        : Altitude (WGS84, km)
 !       real*8    latitude        : Geographic latitude (WGS84, degrees)
 !       real*8    longitude       : Geographic longitude (WGS84, degrees)
@@ -51,7 +51,8 @@ subroutine IL2017(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30
                   ae_integrals, rho, temperature, components)
     implicit none
     ! INPUTS
-    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average
+    integer, intent(in) :: day_of_year
+    real(kind = 8), intent(in) :: altitude, latitude, longitude, UTC_hour, F30, F30_average
     real(kind = 8), intent(in) :: ae_integrals(:)
     ! OUTPUTS
     real(kind = 8), intent(out) :: rho, temperature, components(8)
@@ -386,12 +387,13 @@ end function
 function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, UTC_hour,&
                                   F30, F30_average) result(S)
     implicit none
-     ! INPUTS
-    real(kind = 8), intent(in) :: day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average
+    ! INPUTS
+    integer, intent(in) :: day_of_year
+    real(kind = 8), intent(in) :: altitude, latitude, longitude, UTC_hour, F30, F30_average
     ! OUTPUT
     type(modelStruct) :: S
     ! LOCAL VARIABLES
-    real(kind = 8) :: x, x_mag, P(0:7), pi, magLat, magLon, MLT, LST
+    real(kind = 8) :: x, x_mag, P(0:7), pi, magLat, magLon, MLT, LST, doy_with_frac
     real(kind = 8), parameter :: R = 6356770, z0 = 130D3
 
     pi = 4.0 * atan(1.0D0)
@@ -457,13 +459,14 @@ function compute_variables_for_fit(day_of_year, altitude, latitude, longitude, U
     S%mP62 = P(6)
 
     ! Variations in the "zonal" direction (yv: yearly-, dv: diurnal-, lv: longitudinal variation)
-    S%yv = 2 * pi * (day_of_year - 1) / 365
+    doy_with_frac = day_of_year + UTC_hour/24
+    S%yv = 2 * pi * (doy_with_frac - 1) / 365
     LST = UTC_hour + longitude/15 ! Local solar time
     S%dv = 2 * pi * LST / 24
     S%lv = longitude * pi / 180
 
     ! Magnetic diurnal variation.
-    MLT = computeMagneticLocalTime(magLon, day_of_year, UTC_hour)
+    MLT = computeMagneticLocalTime(magLon, doy_with_frac, UTC_hour)
     S%dv_mag = 2 * pi * MLT / 24
 
     S%F = F30

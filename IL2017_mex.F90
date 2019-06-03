@@ -46,7 +46,8 @@ subroutine mexfunction(nlhs, plhs, nrhs, prhs)
     endif
 
     ! Read input values
-    if(mxIsDouble(prhs(1)) .eq. 0) call mexErrMsgTxt('IL2017: day_of_year has to be a double precision scalar!')
+    if(mxIsDouble(prhs(1)) .eq. 0) call mexErrMsgTxt('IL2017: day_of_year has to be a double precision scalar &
+                                                        (MEX will cast it internally to correct int!)')
     day_of_year = mxGetScalar(prhs(1))
     if(mxIsDouble(prhs(2)) .eq. 0) call mexErrMsgTxt('IL2017: altitude has to be a double precision scalar!')
     altitude = mxGetScalar(prhs(2))
@@ -70,7 +71,7 @@ subroutine mexfunction(nlhs, plhs, nrhs, prhs)
     call mxCopyPtrToReal8(ae_int_ptr, ae_integrals, 4)
 
     ! Now call IL2017 *****************************************************
-    call IL2017(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average,&
+    call IL2017(int(day_of_year), altitude, latitude, longitude, UTC_hour, F30, F30_average,&
                          ae_integrals, rho, temperature, components)                     
     ! **********************************************************************
 

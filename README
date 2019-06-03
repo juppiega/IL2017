@@ -21,8 +21,8 @@ COMPILING AND TESTING:
   Then, run the test program by typing:
   $ ./IL2017_test
   This should print out the following (last decimals may vary due to differences in architechture or compiler flags):
-  Mass density [kg/m^3]   :    6.1668497003893512E-012
-  Neutral temperature [K] :    1321.7067916099650     
+  Mass density [kg/m^3]   :    6.1668469943140263E-012
+  Neutral temperature [K] :    1321.6949700126679  
 
   b) Matlab
 
@@ -37,7 +37,7 @@ RUNNING:
   subroutine IL2017(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average, ae_integrals, rho, temperature, components)
 
   The first eight parameters are inputs (double-precision floating points):
-       real*8    day_of_year     : Day of the year (1.0 - 366.0). Can include a fraction.
+       integer   day_of_year     : Day of the year (1 - 366)
        real*8    altitude        : Altitude (WGS84, km)
        real*8    latitude        : Geographic latitude (WGS84, degrees)
        real*8    longitude       : Geographic longitude (WGS84, degrees)
@@ -81,8 +81,11 @@ RUNNING:
 
   b) Matlab
 
-  The Matlab function "IL2017_mex" can be called with the simple syntax (arguments have the units and types as defined above):
+  The Matlab function "IL2017_mex" can be called with the simple syntax:
   [rho, temperature, components] = IL2017_mex(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average, ae_integrals)
-
+  
+  Arguments have the units and types as defined above, but day_of_year is to be specified as a double precision scalar (this is the
+  default data type in Matlab; the MEX-function will cast it to an integer before calling the model).
+  
   The script "IL2017_matlab_example.m" contains an example on how to call the model directly in Matlab.
 
