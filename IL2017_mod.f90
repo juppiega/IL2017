@@ -28,8 +28,8 @@ contains
 !       real*8    latitude        : Geographic latitude (WGS84, degrees)
 !       real*8    longitude       : Geographic longitude (WGS84, degrees)
 !       real*8    UTC_hour        : Number of hours since 00 UTC. Please include a fraction for accuracy.
-!       real*8    F30             : Daily 30 cm radio flux on the previous day (sfu).
-!       real*8    F30_average     : Arithmetic mean of the 30 cm flux over the preceding 81 days (sfu).
+!       real*8    F30             : Top-of-the-atmosphere daily 30 cm radio flux on the previous day (sfu).
+!       real*8    F30_average     : Arithmetic mean of the top-of-the-atmosphere 30 cm radio flux over the preceding 81 days (sfu).
 !       real*8    ae_integrals(:) : Exponentially weighted averages of the AE index:
 !                                   ae_integrals(1): e-folding time (tau) of 6.9622 hours (for Exospheric temperature)
 !                                   ae_integrals(2): tau = 17.9177 hours (Atomic Oxygen)
@@ -38,7 +38,7 @@ contains
 ! OUTPUTS:
 !       real*8    rho             : Total (neutral) mass density (kg/m^3)
 !       real*8    temperature     : Neutral temperature (K)
-!       real*8    components(8)   : Number densities and further temperature parameters
+!       real*8    components(8)   : Number densities and further parameters
 !                                   components(1): O  number density (1/cm^3)
 !                                   components(2): N2 number density (1/cm^3)
 !                                   components(3): He number density (1/cm^3)

@@ -1,0 +1,88 @@
+IIPPONEN-LAITINEN 2017 (IL2017) THERMOSPHERE MODEL
+
+FILES:
+  IL2017_mod.f90           : Model source file. Includes the primary subroutine of the model: "IL2017".
+  IL2017_test.f90          : Short Fortran program, which illustrates the use of the IL2017 model.
+  IL2017_mex.F90           : Matlab interface (MEX-file).
+  IL2017_matlab_example.m  : An example script, which calls the model using the MEX-file.
+  IL_2017_coeff_mod.f90    : Model coefficients.
+  compute_AE_integrals.m   : A demonstration of the algorithm used to compute the AE-integrals.
+  makefile                 : Makefile for the test program.
+
+COMPILING AND TESTING:
+
+  a) Fortran
+
+  The model has been implemented in Fortran (IL2017_mod.f90), but a Matlab interface is provided (IL2017_mex.F90).
+  To verify that the model is working, compile the Fortran test program (IL2017_test.f90) using the makefile.
+  In the IL2017 root folder, type:
+  $ make
+
+  Then, run the test program by typing:
+  $ ./IL2017_test
+  This should print out the following (last decimals may vary due to differences in architechture or compiler flags):
+  Mass density [kg/m^3]   :    6.1668497003893512E-012
+  Neutral temperature [K] :    1321.7067916099650     
+
+  b) Matlab
+
+  The Matlab interface (MEX-file) allows you to call the model directly in your Matlab scripts. Compile the files with the Matlab command:
+  mex FCFLAGS="\$FCFLAGS -O3" -output IL2017_mex IL2017_coeff_mod.f90 IL2017_mod.f90  IL2017_mex.F90
+  
+RUNNING:
+
+  a) Fortran
+  
+  The model is run by calling the "IL2017" subroutine:
+  subroutine IL2017(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average, ae_integrals, rho, temperature, components)
+
+  The first eight parameters are inputs (double-precision floating points):
+       real*8    day_of_year     : Day of the year (1.0 - 366.0). Can include a fraction.
+       real*8    altitude        : Altitude (WGS84, km)
+       real*8    latitude        : Geographic latitude (WGS84, degrees)
+       real*8    longitude       : Geographic longitude (WGS84, degrees)
+       real*8    UTC_hour        : Number of hours since 00 UTC. Please include a fraction for accuracy.
+       real*8    F30             : Top-of-the-atmosphere daily 30 cm radio flux on the previous day (sfu).
+       real*8    F30_average     : Arithmetic mean of the top-of-the-atmosphere 30 cm radio flux over the preceding 81 days (sfu).
+       real*8    ae_integrals(:) : Exponentially weighted averages of the AE index:
+                                   ae_integrals(1): e-folding time (tau) of 6.9622 hours (for Exospheric temperature)
+                                   ae_integrals(2): tau = 17.9177 hours (Atomic Oxygen)
+                                   ae_integrals(3): tau = 6.1054 hours  (Molecular Nitrogen)
+                                   ae_integrals(4): tau = 5.7896 hours  (Helium)
+
+  The last three parameters are outputs:
+       real*8    rho             : Total (neutral) mass density (kg/m^3)
+       real*8    temperature     : Neutral temperature (K)
+       real*8    components(8)   : Number densities and temperature parameters
+                                   components(1): O  number density (1/cm^3)
+                                   components(2): N2 number density (1/cm^3)
+                                   components(3): He number density (1/cm^3)
+                                   components(4): Ar number density (1/cm^3) (NOT IMPLEMENTED)
+                                   components(5): O2 number density (1/cm^3)
+                                   components(6): Exospheric temperature (K)
+                                   components(7): 130-km temperature (K)
+                                   components(8): 130-km temperature gradient (K/km)
+
+  Studies have traditionally employed the Kyoto provisional AE-index as a geomagnetic proxy. This index is kindly provided by the World Data Center for Geomagnetism, Kyoto, 
+  through their online Data Service at:
+       http://wdc.kugi.kyoto-u.ac.jp/aedir/index.html
+  The provisional index can be used to drive the model, but some of the electrojet varibility is not captured due to the limited spatial coverage of the network. Hence,
+  the model has been tuned using an AE index computed with data from an extended number of stations on both the Northern and the Southern auroral zones. The station
+  data is obtained through SuperMAG:
+       Gjerloev, J. W. (2012), The SuperMAG data processing technique, J. Geophys. Res., 117, A09213, doi:10.1029/2012JA017683
+  and the newly computed index is made available at:
+       https://drive.google.com/open?id=1j8xjxvATW19j8vrioNu6vMrn8MVtnkWgEN-WH0uINgo
+  This Google Drive folder also includes the AE integrals (computed with "compute_AE_integrals.m"), which are required for running the model.
+
+  The 30 cm solar radio flux is measured at the Nobeyama Radio Observatory in Japan (a division of the National Astronomical Observatory of Japan). The data is hosted by 
+  Collecte Localisation Satellites at:
+       ftp://ftpsedr.cls.fr/pub/previsol/solarflux/observation/
+  Note that the IL2017 model has been tuned with the unadjusted top-of-the-atmosphere fluxes.
+
+  b) Matlab
+
+  The Matlab function "IL2017_mex" can be called with the simple syntax (arguments have the units and types as defined above):
+  [rho, temperature, components] = IL2017_mex(day_of_year, altitude, latitude, longitude, UTC_hour, F30, F30_average, ae_integrals)
+
+  The script "IL2017_matlab_example.m" contains an example on how to call the model directly in Matlab.
+
